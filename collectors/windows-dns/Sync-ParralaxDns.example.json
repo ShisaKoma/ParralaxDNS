@@ -1,0 +1,7 @@
+{
+  "apiBaseUrl": "https://dns-inventory.example.net",
+  "collectorTokenFile": "C:\\ProgramData\\Parralax-DNS\\collector.token",
+  "timeoutSeconds": 120,
+  "maxAttempts": 3,
+  "includeReverseLookupZones": false
+}

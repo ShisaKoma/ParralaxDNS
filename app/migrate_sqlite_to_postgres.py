@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import MetaData, Table, create_engine, inspect, select, text
+from sqlalchemy import MetaData, Table, create_engine, func, inspect, select, text
 
 from .database import (
     Database,
@@ -78,11 +78,10 @@ def _reset_sequences(connection) -> None:
     # IDs are preserved so foreign-key history remains immutable. PostgreSQL
     # sequences must therefore move beyond the imported maximum values.
     for table in TABLES:
+        maximum_id = connection.scalar(select(func.max(table.c.id))) or 1
         connection.execute(
-            text(
-                f"SELECT setval(pg_get_serial_sequence('{table.name}', 'id'), "
-                f"COALESCE((SELECT MAX(id) FROM {table.name}), 1), true)"
-            )
+            text("SELECT setval(pg_get_serial_sequence(:table_name, 'id'), :maximum_id, true)"),
+            {"table_name": table.name, "maximum_id": maximum_id},
         )
 
 

@@ -1,6 +1,6 @@
 # Parralax-DNS
 
-Application Python locale pour inventorier les domaines et zones gérés dans
+Application Python pour inventorier les domaines et zones gérés dans
 Cloudflare, Infomaniak, OVHcloud et Technitium DNS, ainsi que les instances
 proxy vues par NGINX Instance Manager. Une synchronisation est **non destructive** : une ressource absente
 d'une collecte réussie est archivée localement, jamais supprimée.
@@ -28,6 +28,67 @@ Cloudflare. Il est volontairement une action distincte de la synchronisation et
 requiert le droit `dns:write` côté Infomaniak. Il ne remplace jamais une zone
 existante.
 
+## Connecteur MCP
+
+Parralax-DNS expose un endpoint MCP HTTP à `POST /mcp`. Il est désactivé tant
+que `PARRALAX_MCP_TOKEN` est vide. Définir un jeton aléatoire dédié, différent
+des jetons des fournisseurs DNS, puis connecter le client MCP avec :
+
+```toml
+[mcp_servers.parralax_dns]
+url = "https://dns.example.net/mcp"
+bearer_token_env_var = "PARRALAX_MCP_TOKEN"
+enabled_tools = [
+  "list_domains",
+  "get_domain",
+  "get_domain_history",
+  "compare_domain_sources",
+  "list_source_snapshots",
+  "compare_source_history",
+]
+default_tools_approval_mode = "approve"
+```
+
+Le connecteur propose uniquement des lectures bornées : inventaire, sources,
+historique et comparaisons DNS courantes ou historiques. Il ne peut ni lancer
+de synchronisation, ni modifier une zone, ni cloner une zone. Les métadonnées
+brutes des fournisseurs ne sont pas retournées. En production, l'URL doit être
+servie en HTTPS derrière l'authentification réseau habituelle ; définir
+`PARRALAX_MCP_ALLOWED_HOSTS` sur le nom d'hôte public (et sa forme `:*` si le
+port est variable), ainsi que `PARRALAX_MCP_ALLOWED_ORIGINS` si un client web
+doit appeler le connecteur.
+
+## Protection de l'interface
+
+Pour protéger l'interface web, l'API REST et Swagger avec un identifiant local,
+renseigner ces deux variables dans `.env` avant de démarrer Docker Compose :
+
+```dotenv
+PARRALAX_UI_AUTH_EMAIL=admin@example.net
+PARRALAX_UI_AUTH_PASSWORD=remplacer-par-un-secret-long-et-aleatoire
+```
+
+Les deux variables sont transmises explicitement par `compose.yaml`. Elles sont
+obligatoires ensemble ; un seul champ, ou un mot de passe de moins de 15
+caractères, empêche volontairement le démarrage. Pour générer un mot de passe
+distinct et aléatoire :
+
+```bash
+openssl rand -base64 32
+```
+
+Appliquer le changement avec `docker compose up -d --force-recreate
+parralax-dns`. Cette protection HTTP Basic couvre les pages `/` et `/history`,
+l'API REST et `/api/docs`. Elle ne remplace pas HTTPS : le service doit rester
+lié à `127.0.0.1` ou être publié derrière un proxy TLS. `/healthz` reste public
+et ne retourne aucune donnée ; les endpoints de collecte et `/mcp` conservent
+leurs jetons dédiés afin que leurs clients automatisés n'aient pas à partager le
+mot de passe de l'interface. Lorsque cette protection est active, un script qui
+appelle une opération REST d'écriture doit aussi transmettre
+`X-Parralax-UI-Request: 1` ; l'interface le fait automatiquement. Cela évite
+qu'un formulaire d'un autre site déclenche une synchronisation avec les
+identifiants Basic mémorisés par le navigateur.
+
 ## Démarrage local
 
 Python 3.14 ou une version ultérieure est requis.
@@ -42,6 +103,18 @@ set -a; source .env; set +a
 ```
 
 Ouvrir ensuite http://127.0.0.1:8000.
+
+Pour mettre à jour une installation existante, redéployer l'API et les
+collecteurs ensemble : les en-têtes attendus sont
+`X-Parralax-Collector-Token` (Windows DNS) et `X-Parralax-Source-Token`
+(sources personnalisées). Mettre à jour les variables `PARRALAX_*`, les
+chemins des scripts et les tâches planifiées selon les exemples ci-dessous.
+Les anciens noms d'en-têtes et de variables des collecteurs ne sont plus acceptés.
+
+Pour une base PostgreSQL déjà initialisée, conserver dans `.env` ses valeurs
+effectives de `POSTGRES_DB`, `POSTGRES_USER` et `POSTGRES_PASSWORD` : les valeurs
+par défaut renommées ne migrent pas une base existante. Les chemins SQLite
+et les noms des volumes de données restent identiques pour conserver l'inventaire.
 
 ## Démarrage avec Docker
 
@@ -139,6 +212,29 @@ POSTGRES_TEST_URL='postgresql+psycopg://parralax_dns:…@127.0.0.1:5433/parralax
   .venv/bin/python -m unittest discover -s tests -v
 ```
 
+## Connecter un serveur depuis l’interface
+
+Le bouton **Connecter un serveur** ouvre un assistant pour **Plesk sous Linux**
+ou **Windows DNS**. Il génère un jeton aléatoire dans le navigateur et fournit :
+
+1. La variable à ajouter à l’environnement de Parralax-DNS, puis la commande
+   pour recréer le service Docker Compose et prendre en compte ce jeton.
+2. Le script du collecteur à télécharger et sa configuration à copier sur le
+   serveur source, avec le même jeton.
+3. La commande de première collecte et les vérifications en cas d’erreur.
+
+Le jeton n’est pas enregistré automatiquement côté API. Fermer l’assistant
+supprime le jeton et les configurations générées de la page. Pour Plesk, conserver
+les autres entrées de `CUSTOM_DNS_COLLECTOR_TOKENS` lors de l’ajout d’une source.
+Le jeton Windows est commun aux collecteurs Windows de l’instance : le remplacer
+nécessite de mettre à jour les collecteurs existants.
+
+**Synchroniser les API** ne déclenche pas les collecteurs externes : Plesk et
+Windows envoient leurs données depuis leurs propres serveurs. Le bouton
+**Comparer** est désactivé tant qu’un domaine possède moins de deux sources.
+La planification des API est repliée sur la page d’inventaire et les diagnostics
+sont accessibles dans **Outils → Diagnostics API**.
+
 ## Collecte Microsoft DNS Server
 
 Chaque serveur Windows est une source indépendante (`windows_dns:nom-du-serveur`).
@@ -233,7 +329,9 @@ connecteur utilise le client Python `technitiumdns-api`, en authentification
 Bearer uniquement (le jeton n'est jamais ajouté à l'URL). Créer un jeton dédié
 avec les permissions minimales `Zones: View` et `Zone: View`. Chaque zone et
 ses records sont synchronisés ; `TECHNITIUM_DNS_NODE=cluster` active la lecture
-agrégée d'un cluster. Garder `TECHNITIUM_DNS_VERIFY_TLS=true` en production.
+agrégée d'un cluster. La vérification TLS est obligatoire ; pour une PKI interne,
+installer sa CA de confiance dans l'environnement du conteneur plutôt que de la
+désactiver.
 
 ## Collecte NGINX Instance Manager
 
@@ -244,11 +342,13 @@ Le connecteur appelle uniquement `GET /api/platform/{version}/instances`, avec
 les métadonnées des instances gérées. NIM n'est pas une autorité DNS : ses
 instances sont donc inventoriées, mais ne sont pas comparées comme des zones
 DNS. Utiliser un rôle NIM limité à la consultation des instances et conserver
-`NGINX_NIM_VERIFY_TLS=true` hors environnement de test.
+la vérification TLS active. Pour un certificat interne, installer sa CA de
+confiance dans l'environnement du conteneur.
 
 ## Diagnostic des API
 
-Le bouton **Tester les API** vérifie chaque connecteur configuré par une lecture
+Dans **Outils → Diagnostics API**, le bouton **Tester les API configurées**
+vérifie chaque connecteur configuré par une lecture
 non destructive de son inventaire. L'interface conserve l'horodatage, la
 latence, le statut et un aperçu normalisé (compte et cinq domaines au maximum).
 Les métadonnées brutes, les contacts et les secrets ne sont ni affichés ni
@@ -259,7 +359,7 @@ Les serveurs Windows DNS fonctionnent en mode collecteur initié par le serveur 
 leur test de connectivité doit donc être lancé depuis PowerShell, qui envoie
 ensuite sa collecte à Parralax-DNS.
 
-## Synchronisation automatique
+## Synchronisation
 
 Parralax-DNS peut synchroniser automatiquement les connecteurs qu’il interroge
 directement : Cloudflare, Infomaniak, OVHcloud, Technitium DNS et NGINX Instance
@@ -357,8 +457,4 @@ Les appels employés sont `GET /zones` et `GET /zones/{id}/dns_records/export`
 chez Cloudflare, ainsi que `GET /2/domains/domains` et `POST /2/zones/{zone}`
 chez Infomaniak.
 
-## Règle d'archivage
 
-Une source n'est archivée qu'après que son fournisseur a renvoyé toutes ses
-pages sans erreur. Ainsi, une panne API, une erreur d'autorisation ou une
-collecte partielle ne peut pas provoquer d'archivage massif.

@@ -3,12 +3,11 @@ from __future__ import annotations
 import json
 import hashlib
 import base64
-import ssl
 import time
 from dataclasses import dataclass
 from typing import Any, Protocol
 from urllib.error import HTTPError, URLError
-from urllib.parse import quote, urlencode
+from urllib.parse import quote, urlencode, urlsplit
 from urllib.request import Request, urlopen
 
 from .models import RemoteDomain
@@ -16,6 +15,24 @@ from .models import RemoteDomain
 
 class ProviderError(RuntimeError):
     pass
+
+
+def _https_base_url(value: str, provider: str) -> str:
+    """Accept only an origin HTTPS URL configured by an administrator.
+
+    Provider addresses come from environment variables. Rejecting non-HTTPS,
+    credentials-in-URL and custom schemes prevents an accidental downgrade or a
+    configuration-driven request to a local file/socket.
+    """
+    parsed = urlsplit(value)
+    if (
+        parsed.scheme != "https"
+        or not parsed.netloc
+        or parsed.username is not None
+        or parsed.password is not None
+    ):
+        raise ProviderError(f"L'URL du connecteur {provider} doit être une URL HTTPS sans identifiants.")
+    return value.rstrip("/")
 
 
 class Provider(Protocol):
@@ -27,7 +44,7 @@ class Provider(Protocol):
 def _request_json(url: str, token: str) -> dict[str, Any]:
     request = Request(url, headers={"Authorization": f"Bearer {token}", "Accept": "application/json"})
     try:
-        with urlopen(request, timeout=30) as response:
+        with urlopen(request, timeout=30) as response:  # nosec B310
             return json.loads(response.read().decode("utf-8"))
     except HTTPError as exc:
         detail = exc.read().decode("utf-8", errors="replace")[:500]
@@ -43,6 +60,9 @@ class CloudflareProvider:
     token: str
     name: str = "cloudflare"
     base_url: str = "https://api.cloudflare.com/client/v4"
+
+    def __post_init__(self):
+        self.base_url = _https_base_url(self.base_url, self.name)
 
     def list_domains(self) -> list[RemoteDomain]:
         page, items = 1, []
@@ -69,7 +89,7 @@ class CloudflareProvider:
             headers={"Authorization": f"Bearer {self.token}", "Accept": "text/plain"},
         )
         try:
-            with urlopen(request, timeout=30) as response:
+            with urlopen(request, timeout=30) as response:  # nosec B310
                 return response.read().decode("utf-8")
         except HTTPError as exc:
             detail = exc.read().decode("utf-8", errors="replace")[:500]
@@ -99,6 +119,9 @@ class InfomaniakProvider:
     account_id: str | None = None
     name: str = "infomaniak"
     base_url: str = "https://api.infomaniak.com"
+
+    def __post_init__(self):
+        self.base_url = _https_base_url(self.base_url, self.name)
 
     def list_domains(self) -> list[RemoteDomain]:
         page, items = 1, []
@@ -130,7 +153,7 @@ class InfomaniakProvider:
             headers={"Authorization": f"Bearer {self.token}", "Content-Type": "application/json", "Accept": "application/json"},
         )
         try:
-            with urlopen(request, timeout=45) as response:
+            with urlopen(request, timeout=45) as response:  # nosec B310
                 data = json.loads(response.read().decode("utf-8"))
         except HTTPError as exc:
             detail = exc.read().decode("utf-8", errors="replace")[:500]
@@ -205,11 +228,14 @@ class OvhProvider:
     name: str = "ovh"
     _time_delta: float | None = None
 
+    def __post_init__(self):
+        self.base_url = _https_base_url(self.base_url, self.name)
+
     def _timestamp(self) -> int:
         if self._time_delta is None:
             request = Request(f"{self.base_url}/auth/time", headers={"X-Ovh-Application": self.application_key})
             try:
-                with urlopen(request, timeout=30) as response:
+                with urlopen(request, timeout=30) as response:  # nosec B310
                     server_time = int(json.loads(response.read().decode("utf-8")))
             except (HTTPError, URLError, TimeoutError, ValueError, json.JSONDecodeError) as exc:
                 raise ProviderError(f"Impossible de synchroniser l'horloge avec l'API OVH: {exc}") from exc
@@ -220,7 +246,9 @@ class OvhProvider:
         url = f"{self.base_url}{path}"
         timestamp = self._timestamp()
         signature_payload = "+".join((self.application_secret, self.consumer_key, "GET", url, "", str(timestamp)))
-        signature = "$1$" + hashlib.sha1(signature_payload.encode("utf-8")).hexdigest()
+        # OVHcloud's v1 signed-request protocol prescribes SHA-1. This is an
+        # interoperability constraint, not a password hash or a new protocol.
+        signature = "$1$" + hashlib.sha1(signature_payload.encode("utf-8")).hexdigest()  # nosec B324
         request = Request(url, headers={
             "X-Ovh-Application": self.application_key,
             "X-Ovh-Consumer": self.consumer_key,
@@ -229,7 +257,7 @@ class OvhProvider:
             "Accept": "application/json",
         })
         try:
-            with urlopen(request, timeout=30) as response:
+            with urlopen(request, timeout=30) as response:  # nosec B310
                 return json.loads(response.read().decode("utf-8"))
         except HTTPError as exc:
             detail = exc.read().decode("utf-8", errors="replace")[:500]
@@ -267,6 +295,11 @@ class TechnitiumDnsProvider:
     node: str | None = None
     verify_tls: bool = True
     name: str = "technitium"
+
+    def __post_init__(self):
+        self.base_url = _https_base_url(self.base_url, self.name)
+        if not self.verify_tls:
+            raise ProviderError("La vérification TLS ne peut pas être désactivée pour Technitium DNS.")
 
     def _client(self):
         # Keep this import local so a missing optional runtime dependency yields a
@@ -341,6 +374,11 @@ class NginxInstanceManagerProvider:
     verify_tls: bool = True
     name: str = "nginx_nim"
 
+    def __post_init__(self):
+        self.base_url = _https_base_url(self.base_url, self.name)
+        if not self.verify_tls:
+            raise ProviderError("La vérification TLS ne peut pas être désactivée pour NGINX Instance Manager.")
+
     def _authorization(self) -> str:
         if self.bearer_token:
             return f"Bearer {self.bearer_token}"
@@ -358,9 +396,8 @@ class NginxInstanceManagerProvider:
             f"?{urlencode(query)}"
         )
         request = Request(url, headers={"Authorization": self._authorization(), "Accept": "application/json"})
-        context = None if self.verify_tls else ssl._create_unverified_context()
         try:
-            with urlopen(request, timeout=30, context=context) as response:
+            with urlopen(request, timeout=30) as response:  # nosec B310
                 return json.loads(response.read().decode("utf-8"))
         except HTTPError as exc:
             detail = exc.read().decode("utf-8", errors="replace")[:500]

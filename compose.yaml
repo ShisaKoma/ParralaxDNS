@@ -1,7 +1,7 @@
 # Development-only PostgreSQL override. Keep compose.yaml alone for SQLite.
 # Usage: docker compose -f compose.yaml -f compose.postgres.yaml up --build
 services:
-  domain-inventory:
+  parralax-dns:
     environment:
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-parralax_dns}:${POSTGRES_PASSWORD:-parralax_dns_development_only}@postgres:5432/${POSTGRES_DB:-parralax_dns}
     depends_on:
