@@ -9,8 +9,7 @@ WORKDIR /app
 COPY pyproject.toml README.md alembic.ini ./
 COPY app ./app
 COPY alembic ./alembic
-COPY collectors ./collectors
-COPY plesk-collector ./plesk-collector
+# COPY collectors ./collectors
 
 RUN pip install --no-cache-dir . \
     && addgroup --system app \
