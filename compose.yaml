@@ -1,0 +1,30 @@
+# Development-only PostgreSQL override. Keep compose.yaml alone for SQLite.
+# Usage: docker compose -f compose.yaml -f compose.postgres.yaml up --build
+services:
+  domain-inventory:
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-parralax_dns}:${POSTGRES_PASSWORD:-parralax_dns_development_only}@postgres:5432/${POSTGRES_DB:-parralax_dns}
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  postgres:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-parralax_dns}
+      POSTGRES_USER: ${POSTGRES_USER:-parralax_dns}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-parralax_dns_development_only}
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-5433}:5432"
+    volumes:
+      # PostgreSQL 18 stores each major version beneath /var/lib/postgresql.
+      # Mount the parent directory so its version-specific PGDATA is preserved.
+      - domain_inventory_postgres_18_data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+volumes:
+  domain_inventory_postgres_18_data:
