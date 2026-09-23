@@ -17,7 +17,7 @@ d'une collecte réussie est archivée localement, jamais supprimée.
 - conservation de la configuration DNS complète à chaque synchronisation et comparaison de deux états d’une même source ;
 - comparaison à la demande des sources d’un même domaine (statuts et DNS) ;
 - inventaire de plusieurs serveurs Microsoft DNS via un collecteur PowerShell ;
-- ingestion sécurisée des zones et records de sources personnalisées (Plesk, cPanel ou outil interne) ;
+- ingestion sécurisée des zones et records de sources personnalisées (Plesk, Kubernetes, cPanel ou outil interne) ;
 - synchronisation des domaines OVHcloud et comparaison DNS à la demande ;
 - synchronisation des zones et des records Technitium via `technitiumdns-api` ;
 - inventaire en lecture seule des instances gérées par l’API native NGINX Instance Manager ;
@@ -28,7 +28,7 @@ Cloudflare. Il est volontairement une action distincte de la synchronisation et
 requiert le droit `dns:write` côté Infomaniak. Il ne remplace jamais une zone
 existante.
 
-## Connecteur MCP
+## Connecteur MCP (lecture seule)
 
 Parralax-DNS expose un endpoint MCP HTTP à `POST /mcp`. Il est désactivé tant
 que `PARRALAX_MCP_TOKEN` est vide. Définir un jeton aléatoire dédié, différent
@@ -60,18 +60,18 @@ doit appeler le connecteur.
 
 ## Protection de l'interface
 
-Pour protéger l'interface web, l'API REST et Swagger avec un identifiant local,
-renseigner ces deux variables dans `.env` avant de démarrer Docker Compose :
+L'interface web, l'API REST et Swagger nécessitent obligatoirement un
+identifiant et un mot de passe. Renseigner ces deux variables dans `.env` avant
+de démarrer Docker Compose :
 
 ```dotenv
 PARRALAX_UI_AUTH_EMAIL=admin@example.net
 PARRALAX_UI_AUTH_PASSWORD=remplacer-par-un-secret-long-et-aleatoire
 ```
 
-Les deux variables sont transmises explicitement par `compose.yaml`. Elles sont
-obligatoires ensemble ; un seul champ, ou un mot de passe de moins de 15
-caractères, empêche volontairement le démarrage. Pour générer un mot de passe
-distinct et aléatoire :
+Les deux variables sont transmises explicitement par `compose.yaml`. Une valeur
+manquante, un seul champ, ou un mot de passe de moins de 15 caractères empêche
+volontairement le démarrage. Pour générer un mot de passe distinct et aléatoire :
 
 ```bash
 openssl rand -base64 32
@@ -83,8 +83,8 @@ l'API REST et `/api/docs`. Elle ne remplace pas HTTPS : le service doit rester
 lié à `127.0.0.1` ou être publié derrière un proxy TLS. `/healthz` reste public
 et ne retourne aucune donnée ; les endpoints de collecte et `/mcp` conservent
 leurs jetons dédiés afin que leurs clients automatisés n'aient pas à partager le
-mot de passe de l'interface. Lorsque cette protection est active, un script qui
-appelle une opération REST d'écriture doit aussi transmettre
+mot de passe de l'interface. Un script qui appelle une opération REST d'écriture
+doit aussi transmettre
 `X-Parralax-UI-Request: 1` ; l'interface le fait automatiquement. Cela évite
 qu'un formulaire d'un autre site déclenche une synchronisation avec les
 identifiants Basic mémorisés par le navigateur.
@@ -95,7 +95,7 @@ Python 3.14 ou une version ultérieure est requis.
 
 ```bash
 cp .env.example .env
-# renseigner les jetons, puis les exporter dans l'environnement de lancement
+# renseigner les identifiants de l'UI et les jetons, puis les exporter dans l'environnement de lancement
 python -m venv .venv
 .venv/bin/pip install -e .
 set -a; source .env; set +a
@@ -120,7 +120,7 @@ et les noms des volumes de données restent identiques pour conserver l'inventai
 
 ```bash
 cp .env.example .env
-# renseigner au moins un jeton API dans .env
+# renseigner les identifiants de l'UI et au moins un jeton API dans .env
 docker compose up --build -d
 docker compose ps
 ```
@@ -214,8 +214,8 @@ POSTGRES_TEST_URL='postgresql+psycopg://parralax_dns:…@127.0.0.1:5433/parralax
 
 ## Connecter un serveur depuis l’interface
 
-Le bouton **Connecter un serveur** ouvre un assistant pour **Plesk sous Linux**
-ou **Windows DNS**. Il génère un jeton aléatoire dans le navigateur et fournit :
+Le bouton **Connecter un serveur** ouvre un assistant pour les serveurs Linux
+et Windows. Il génère un jeton aléatoire dans le navigateur et fournit :
 
 1. La variable à ajouter à l’environnement de Parralax-DNS, puis la commande
    pour recréer le service Docker Compose et prendre en compte ce jeton.
@@ -224,13 +224,19 @@ ou **Windows DNS**. Il génère un jeton aléatoire dans le navigateur et fourni
 3. La commande de première collecte et les vérifications en cas d’erreur.
 
 Le jeton n’est pas enregistré automatiquement côté API. Fermer l’assistant
-supprime le jeton et les configurations générées de la page. Pour Plesk, conserver
-les autres entrées de `CUSTOM_DNS_COLLECTOR_TOKENS` lors de l’ajout d’une source.
+supprime le jeton et les configurations générées de la page. Conserver les autres
+entrées de `CUSTOM_DNS_COLLECTOR_TOKENS` lors de l’ajout d’une source.
 Le jeton Windows est commun aux collecteurs Windows de l’instance : le remplacer
 nécessite de mettre à jour les collecteurs existants.
 
-**Synchroniser les API** ne déclenche pas les collecteurs externes : Plesk et
-Windows envoient leurs données depuis leurs propres serveurs. Le bouton
+L’URL de Parralax-DNS peut être en HTTP ou HTTPS. Cela permet notamment une
+adresse locale telle que `http://172.20.205.197:1337` ; l’assistant ajoute alors
+automatiquement `/api/collectors/custom-dns/sync` à `PARRALAX_API_URL`. Le
+collecteur Linux fourni peut cibler Plesk ou les objets Ingress d’un cluster
+Kubernetes.
+
+**Synchroniser les API** ne déclenche pas les collecteurs externes : les serveurs
+connectés envoient leurs données depuis leurs propres collecteurs. Le bouton
 **Comparer** est désactivé tant qu’un domaine possède moins de deux sources.
 La planification des API est repliée sur la page d’inventaire et les diagnostics
 sont accessibles dans **Outils → Diagnostics API**.
@@ -322,6 +328,35 @@ droits de lecture limités à `/domain/*` et `/domain/zone/*`, puis relancer la
 synchronisation dans Parralax-DNS. Les trois secrets restent uniquement dans
 `.env` et ne sont jamais inscrits en base.
 
+## Collecte Kubernetes
+
+Le collecteur Kubernetes fourni lit, en lecture seule, les objets
+`networking.k8s.io/v1 Ingress` de tous les espaces de noms. Il ajoute à
+l’inventaire les hôtes déclarés, avec les adresses de load balancer observées et
+la cible ExternalDNS éventuelle. Il ne lit pas les zones CoreDNS, ne déduit pas
+les noms des Services et ne modifie aucune ressource Kubernetes.
+
+Chaque cluster doit utiliser un identifiant de source et un jeton distincts,
+par exemple `kubernetes-prod-01` :
+
+```dotenv
+CUSTOM_DNS_COLLECTOR_TOKENS={"kubernetes-prod-01":"un-secret-long-et-aleatoire"}
+```
+
+Le dossier [`collectors/kubernetes`](collectors/kubernetes) contient le script,
+son image minimale et un manifeste `CronJob` avec un `ClusterRole` limité à
+`list` sur les Ingress. Construisez l’image, publiez-la dans votre registre,
+remplacez l’image de démonstration du manifeste par une référence versionnée,
+puis créez le Secret Kubernetes contenant `PARRALAX_API_URL`,
+`PARRALAX_SOURCE` et `PARRALAX_SOURCE_TOKEN`. Les commandes complètes, les
+exigences RBAC et une procédure de contrôle figurent dans le
+[guide du collecteur Kubernetes](collectors/kubernetes/README.md).
+
+Par sécurité, un inventaire sans hôte Ingress n’est pas publié et ne peut donc
+pas archiver les entrées existantes. Utilisez temporairement
+`PARRALAX_ALLOW_EMPTY_INVENTORY=true` dans le Secret uniquement lorsqu’un
+inventaire vide est intentionnel.
+
 ## Collecte Technitium DNS
 
 Renseigner `TECHNITIUM_DNS_API_URL` et `TECHNITIUM_DNS_API_TOKEN`. Le
@@ -359,7 +394,7 @@ Les serveurs Windows DNS fonctionnent en mode collecteur initié par le serveur 
 leur test de connectivité doit donc être lancé depuis PowerShell, qui envoie
 ensuite sa collecte à Parralax-DNS.
 
-## Synchronisation
+## Synchronisation automatique
 
 Parralax-DNS peut synchroniser automatiquement les connecteurs qu’il interroge
 directement : Cloudflare, Infomaniak, OVHcloud, Technitium DNS et NGINX Instance
@@ -383,9 +418,9 @@ sont donc distinguables des actions `manual` et des remontées `collector` dans
 l’historique. Une exécution concurrente est ignorée plutôt que de lancer deux
 synchronisations en parallèle.
 
-Les trois serveurs Windows DNS et les sources Plesk/cPanel restent des
+Les serveurs Windows DNS, les sources Plesk/cPanel et les collecteurs Kubernetes restent des
 collecteurs **push** : planifier leur script ou leur intégration sur l’hôte
-source. Leur publication complète alimente le même historique. Pour un
+source ou dans le cluster. Leur publication complète alimente le même historique. Pour un
 déploiement avec plusieurs réplicas web, ne démarrer le planificateur que dans
 une seule réplique ; un ordonnanceur externe ou un verrou distribué sera requis
 avant de le dupliquer.
@@ -402,7 +437,7 @@ désactivées ou les placer derrière l’authentification SSO/proxy ; Swagger e
 les opérations d’administration et de collecte, même s’il ne contient aucun
 secret.
 
-## Sources DNS personnalisées (Plesk, cPanel, interne)
+## Sources DNS personnalisées (Plesk, Kubernetes, cPanel, interne)
 
 Un outil externe pousse son inventaire complet vers
 `POST /api/collectors/custom-dns/sync`. Chaque `source` possède son propre jeton
@@ -457,4 +492,8 @@ Les appels employés sont `GET /zones` et `GET /zones/{id}/dns_records/export`
 chez Cloudflare, ainsi que `GET /2/domains/domains` et `POST /2/zones/{zone}`
 chez Infomaniak.
 
+## Règle d'archivage
 
+Une source n'est archivée qu'après que son fournisseur a renvoyé toutes ses
+pages sans erreur. Ainsi, une panne API, une erreur d'autorisation ou une
+collecte partielle ne peut pas provoquer d'archivage massif.

@@ -5,6 +5,20 @@ import json
 from typing import Any
 
 
+TARGET_RECORD_TYPES = frozenset({"CNAME", "MX", "NS", "PTR", "SRV"})
+RECORD_FIELD_LABELS = {
+    "target": "Cible",
+    "value": "Valeur",
+    "priority": "Priorité",
+    "weight": "Poids",
+    "port": "Port",
+    "ttl": "TTL",
+    "proxied": "Proxy Cloudflare",
+    "flags": "Flags CAA",
+    "tag": "Tag CAA",
+}
+
+
 def _without_none(values: dict[str, Any]) -> dict[str, Any]:
     return {key: value for key, value in values.items() if value is not None}
 
@@ -68,34 +82,54 @@ def source_profile(source: dict[str, Any]) -> dict[str, Any]:
     return _without_none(profile)
 
 
+def _record_option(record: dict[str, Any], key: str, data: dict[str, Any]) -> Any:
+    """Read an option whether a provider puts it on the record or in data."""
+    return record.get(key, data.get(key))
+
+
+def _technitium_value(record: dict[str, Any], data: dict[str, Any]) -> Any:
+    """Extract the portable value from a Technitium record payload."""
+    for key in ("value", "target", "ipAddress", "exchange", "mailExchange", "nameServer", "ptrName", "text"):
+        value = record.get(key, data.get(key))
+        if value is not None:
+            return value
+    return data or None
+
+
+def _display_value(value: Any) -> str:
+    if isinstance(value, (dict, list)):
+        return json.dumps(value, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
+    return str(value)
+
+
 def normalize_record(provider: str, record: dict[str, Any], domain_name: str) -> dict[str, Any] | None:
-    """Bring Cloudflare and Infomaniak record shapes to the same DNS vocabulary."""
+    """Bring provider record shapes to a comparison-safe DNS vocabulary."""
+    data = record.get("data") or record.get("rData") or {}
+    if not isinstance(data, dict):
+        data = {}
     if provider == "cloudflare":
-        owner, value = record.get("name"), record.get("content")
-        extra = {"proxied": record.get("proxied"), "comment": record.get("comment")}
+        owner, value = record.get("name"), record.get("content", data.get("target", data.get("value")))
+        record_type = record.get("type")
     elif provider == "infomaniak":
-        owner, value = record.get("source"), record.get("target")
-        extra = {}
+        owner, value = record.get("source"), record.get("target", record.get("value"))
+        record_type = record.get("type")
     elif provider.startswith("windows_dns:"):
         owner, value = record.get("name"), record.get("value")
-        extra = {}
+        record_type = record.get("type")
     elif provider.startswith("custom:"):
         owner, value = record.get("name"), record.get("value")
-        extra = {
-            "priority": record.get("priority"),
-            "weight": record.get("weight"),
-            "port": record.get("port"),
-        }
+        record_type = record.get("type")
     elif provider == "ovh":
         owner, value = record.get("subDomain"), record.get("target")
         record_type = record.get("fieldType")
-        extra = {}
         if owner in {None, ""}:
             owner = "@"
+    elif provider == "technitium":
+        owner = record.get("name") or record.get("domain") or record.get("owner")
+        value = _technitium_value(record, data)
+        record_type = record.get("type") or record.get("recordType")
     else:
         return None
-    if provider != "ovh":
-        record_type = record.get("type")
     if not owner or value is None or not record_type:
         return None
     owner = str(owner).rstrip(".").lower()
@@ -104,19 +138,69 @@ def normalize_record(provider: str, record: dict[str, Any], domain_name: str) ->
         owner = apex
     elif "." not in owner:
         owner = f"{owner}.{apex}"
-    return _without_none({
+    record_type = str(record_type).upper()
+    value = _display_value(value)
+    if record_type not in {"TXT", "CAA"}:
+        value = value.rstrip(".")
+    extra = {
+        key: _record_option(record, key, data)
+        for key in ("priority", "weight", "port", "proxied", "flags", "tag")
+    }
+    normalized = _without_none({
         "name": owner,
-        "type": str(record_type).upper(),
-        "value": str(value).rstrip(".") if str(record_type).upper() not in {"TXT", "CAA"} else str(value),
+        "type": record_type,
+        "value": value,
         "ttl": record.get("ttl"),
         **extra,
     })
+    if record_type in TARGET_RECORD_TYPES:
+        normalized["target"] = value
+    return normalized
 
 
 def records_from_metadata(metadata: dict[str, Any]) -> list[dict[str, Any]]:
     """Return the full DNS configuration stored by a source snapshot."""
     records = metadata.get("dns_records", metadata.get("records", []))
     return records if isinstance(records, list) else []
+
+
+def _sorted_unique_values(records: list[dict[str, Any]], field: str) -> list[Any]:
+    values = {json.dumps(record[field], sort_keys=True, ensure_ascii=False) for record in records if field in record}
+    return [json.loads(value) for value in sorted(values)]
+
+
+def _record_set_comparison(
+    groups: dict[tuple[str, str], dict[str, list[dict[str, Any]]]],
+    readable_sources: list[str],
+) -> list[dict[str, Any]]:
+    """Compare each owner/type set field-by-field across the selected sources."""
+    comparisons = []
+    for (name, record_type), source_entries in sorted(groups.items()):
+        records = {source: source_entries.get(source, []) for source in readable_sources}
+        payload_field = "target" if record_type in TARGET_RECORD_TYPES else "value"
+        fields = [payload_field, "priority", "weight", "port", "ttl", "proxied", "flags", "tag"]
+        field_differences = []
+        for field in fields:
+            values = {source: _sorted_unique_values(entries, field) for source, entries in records.items()}
+            populated = [json.dumps(value, sort_keys=True, ensure_ascii=False) for value in values.values()]
+            if not any(values.values()):
+                continue
+            if len(set(populated)) > 1:
+                field_differences.append({
+                    "field": field,
+                    "label": RECORD_FIELD_LABELS[field],
+                    "values": values,
+                })
+        missing_from = [source for source in readable_sources if not records[source]]
+        comparisons.append({
+            "name": name,
+            "type": record_type,
+            "status": "missing" if missing_from else ("different" if field_differences else "identical"),
+            "missing_from": missing_from,
+            "sources": records,
+            "field_differences": field_differences,
+        })
+    return comparisons
 
 
 def compare_source_snapshots(
@@ -174,6 +258,8 @@ def compare(domain: dict[str, Any], records_by_source: dict[str, list[dict[str, 
     normalized: dict[str, list[dict[str, Any]]] = {}
     for source in domain["sources"]:
         key = f"{source['provider']}:{source['external_id']}"
+        if key not in records_by_source:
+            continue
         normalized[key] = [
             normalized_record
             for record in records_by_source.get(key, [])
@@ -211,6 +297,7 @@ def compare(domain: dict[str, Any], records_by_source: dict[str, list[dict[str, 
         for (name, record_type), source_entries in sorted(groups.items())
         if len(source_entries) > 1 and len({tuple((item["value"], item.get("ttl"), item.get("proxied"), item.get("priority"), item.get("weight"), item.get("port")) for item in entries) for entries in source_entries.values()}) > 1
     ]
+    record_sets = _record_set_comparison(groups, readable_sources)
     return {
         "domain": domain["name"],
         "source_count": len(domain["sources"]),
@@ -221,6 +308,12 @@ def compare(domain: dict[str, Any], records_by_source: dict[str, list[dict[str, 
             "common_records": common,
             "only_by_source": only_by_source,
             "conflicts": conflicts,
+            "record_sets": record_sets,
+            "record_set_summary": {
+                "identical": sum(item["status"] == "identical" for item in record_sets),
+                "different": sum(item["status"] == "different" for item in record_sets),
+                "missing": sum(item["status"] == "missing" for item in record_sets),
+            },
             "summary": {
                 "common": len(common),
                 "different": sum(len(records) for records in only_by_source.values()),

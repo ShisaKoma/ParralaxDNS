@@ -270,6 +270,63 @@ class Database:
             ]
             return domain
 
+    def archive_domain(self, domain_id: int) -> dict[str, Any] | None:
+        """Archive a domain and its active sources without deleting stored data."""
+        with self.connection() as conn:
+            domain = conn.execute(select(domains).where(domains.c.id == domain_id)).mappings().first()
+            if domain is None:
+                return None
+
+            timestamp = now()
+            active_sources = conn.execute(
+                select(domain_sources).where(
+                    domain_sources.c.domain_id == domain_id,
+                    domain_sources.c.lifecycle_status == "active",
+                )
+            ).mappings().all()
+            for source in active_sources:
+                before = {
+                    "remote_status": source["remote_status"],
+                    "metadata": json_value(source["metadata_json"]),
+                    "lifecycle_status": "active",
+                }
+                after = {**before, "lifecycle_status": "archived"}
+                conn.execute(
+                    domain_sources.update()
+                    .where(domain_sources.c.id == source["id"])
+                    .values(lifecycle_status="archived", archived_at=timestamp, updated_at=timestamp)
+                )
+                conn.execute(
+                    history.insert().values(
+                        domain_id=domain_id,
+                        source_id=source["id"],
+                        event_type="archived",
+                        before_json=before,
+                        after_json=after,
+                        occurred_at=timestamp,
+                    )
+                )
+
+            if domain["lifecycle_status"] != "archived":
+                before = {"name": domain["name"], "lifecycle_status": domain["lifecycle_status"]}
+                after = {"name": domain["name"], "lifecycle_status": "archived"}
+                conn.execute(
+                    domains.update()
+                    .where(domains.c.id == domain_id)
+                    .values(lifecycle_status="archived", archived_at=timestamp, updated_at=timestamp)
+                )
+                conn.execute(
+                    history.insert().values(
+                        domain_id=domain_id,
+                        event_type="archived",
+                        before_json=before,
+                        after_json=after,
+                        occurred_at=timestamp,
+                    )
+                )
+
+        return self.get_domain(domain_id)
+
     def list_history(self, limit: int = 100) -> list[dict[str, Any]]:
         """Return the cross-domain audit trail, enriched for the history UI."""
         statement = (

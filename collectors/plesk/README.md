@@ -13,15 +13,14 @@ Il ne modifie jamais Plesk. Le TTL n'est pas inclus : la sortie de
 
 - aucune requête HTTP n'est envoyée avant d'avoir lu **tous** les domaines et
   toutes les zones ;
-- un échec de `domain --list`, de `dns --info`, une sortie de zone vide ou une
-  ligne DNS non comprise annule tout le cycle ;
-- une liste de domaines ou de zones vide est refusée ;
-- le script n'envoie donc jamais une liste vide ni un inventaire partiel qui
-  risquerait d'archiver des zones dans Parralax-DNS.
+- un échec de `domain --list` annule le cycle ;
+- une zone vide est remontée sans records avec l'état `no_records` ; une zone
+  DNS désactivée dans Plesk est remontée avec l'état `dns_disabled` ;
+- une zone illisible ou dans un format DNS inconnu est journalisée puis
+  ignorée ; la collecte continue avec les autres domaines ;
+- une liste de domaines ou l'inventaire final vide est refusé.
 
-Cette politique est volontairement stricte : si une nouvelle version de Plesk
-change le format de `dns --info`, le collecteur s'arrête et affiche la ligne à
-adapter au lieu de publier des données douteuses.
+Le récapitulatif final indique le nombre de zones transmises et ignorées.
 
 ## Installation
 
@@ -56,6 +55,40 @@ set +a
 
 Vérifier le JSON produit, puis retirer `--dry-run` pour publier.
 
+## Diagnostic d'une zone ignorée
+
+Une zone qui ne peut pas être lue n'interrompt pas le cycle : elle est ignorée
+et les autres zones sont publiées. Chaque erreur indique le code de retour
+Plesk, la commande concernée et le volume de données reçues sur stdout et
+stderr. Le collecteur échoue seulement si aucune zone valide n'a été trouvée.
+Une zone explicitement désactivée dans Plesk est identifiée comme telle et
+remontée avec `remote_status: dns_disabled` et une liste de records vide : elle
+reste donc dans l'inventaire au lieu d'être archivée parce qu'elle serait
+absente du payload. Les zones secondaires restent collectées normalement :
+Plesk documente que `plesk bin dns --info` affiche leurs records.
+
+Pour obtenir la sortie Plesk numérotée et conserver les fichiers temporaires
+de la collecte, lancez :
+
+```bash
+set -a
+. /etc/parralax-plesk-collector.env
+set +a
+./collect-plesk-dns.sh --dry-run --debug
+```
+
+Le chemin des fichiers de diagnostic est affiché à la fin. Ils sont créés avec
+des permissions `0700`. Une zone signalée comme sans record signifie que
+`plesk bin dns --info <domaine>` a réussi, mais n'a émis aucun record sur
+stdout ; vérifier alors la configuration DNS de ce domaine dans Plesk et les
+droits du compte qui exécute le collecteur. Elle reste visible dans l'inventaire
+avec l'état `dns_disabled` pour ce cycle.
+
+Les records de chaque zone et le document envoyé sont construits depuis des
+fichiers temporaires, plutôt que passés comme arguments de ligne de commande à
+`jq`. Le collecteur reste ainsi utilisable avec un grand nombre de zones ou de
+records, sans erreur `Argument list too long`.
+
 ## Planification
 
 Exemple de cron toutes les six heures (les permissions du fichier de
@@ -83,4 +116,4 @@ _sip._tcp.example.org. SRV 10 5 5060 sip.example.org.
 Les records non-MX/SRV transmettent toute la partie droite comme `value`, ce
 qui couvre notamment A, AAAA, CNAME, NS, TXT, CAA, DS et HTTPS. Les records MX
 et SRV doivent contenir leurs préfixes numériques standard ; autrement la
-collecte est annulée.
+zone est ignorée.

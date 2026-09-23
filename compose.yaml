@@ -4,6 +4,8 @@ services:
   parralax-dns:
     environment:
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-parralax_dns}:${POSTGRES_PASSWORD:-parralax_dns_development_only}@postgres:5432/${POSTGRES_DB:-parralax_dns}
+      PARRALAX_UI_AUTH_EMAIL: 'admin@example.net'
+      PARRALAX_UI_AUTH_PASSWORD: 'remplacer-par-un-secret-long-et-aleatoire'
     depends_on:
       postgres:
         condition: service_healthy

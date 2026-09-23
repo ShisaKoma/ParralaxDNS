@@ -1,0 +1,73 @@
+# Remplacez l'image par l'image du Dockerfile de ce dossier, publiée dans votre
+# registre de confiance. Créez le Secret avant d'appliquer ce manifeste.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: parralax-kubernetes-collector
+  namespace: parralax-dns
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: parralax-kubernetes-collector
+rules:
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["ingresses"]
+    verbs: ["list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: parralax-kubernetes-collector
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: parralax-kubernetes-collector
+subjects:
+  - kind: ServiceAccount
+    name: parralax-kubernetes-collector
+    namespace: parralax-dns
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: parralax-kubernetes-collector
+  namespace: parralax-dns
+spec:
+  schedule: "17 */6 * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 2
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      template:
+        spec:
+          serviceAccountName: parralax-kubernetes-collector
+          restartPolicy: OnFailure
+          securityContext:
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: collector
+              image: parralax-kubernetes-collector:latest
+              imagePullPolicy: IfNotPresent
+              env:
+                - name: HOME
+                  value: /tmp
+              envFrom:
+                - secretRef:
+                    name: parralax-kubernetes-collector
+              volumeMounts:
+                - name: tmp
+                  mountPath: /tmp
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop: ["ALL"]
+                readOnlyRootFilesystem: true
+                runAsNonRoot: true
+                runAsUser: 65532
+          volumes:
+            - name: tmp
+              emptyDir: {}
