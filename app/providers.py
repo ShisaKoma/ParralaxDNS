@@ -461,6 +461,167 @@ class NginxInstanceManagerProvider:
                 remote_status=instance.get("status") or instance.get("state") or instance.get("health") or "managed",
                 # NIM does not authoritatively manage DNS. Mark its inventory so
                 # the interface and comparison API do not treat it as a DNS zone.
-                metadata={"inventory_kind": "nginx_instance", **instance},
+                metadata={**instance, "inventory_kind": "nginx_instance"},
             ))
         return items
+
+
+@dataclass
+class NginxOneAppProtectProvider:
+    """Read NGINX One instances and App Protect policy summaries.
+
+    The provider deliberately uses only collection endpoints. Policy bodies and
+    security events can contain application details that Parralax-DNS does not
+    need for inventory and are therefore never requested.
+    """
+
+    base_url: str
+    namespace: str
+    api_token: str
+    auth_scheme: str = "APIToken"
+    name: str = "nginx_one"
+    page_size: int = 100
+
+    def __post_init__(self):
+        self.base_url = _https_base_url(self.base_url, self.name)
+        self.namespace = self.namespace.strip()
+        if not self.namespace:
+            raise ProviderError("NGINX One requiert un namespace.")
+        if not self.api_token:
+            raise ProviderError("NGINX One requiert un jeton API.")
+        if self.auth_scheme not in {"APIToken", "Bearer"}:
+            raise ProviderError("NGINX_ONE_AUTH_SCHEME doit valoir APIToken ou Bearer.")
+        if not 1 <= self.page_size <= 1_000:
+            raise ProviderError("La taille de page NGINX One doit être comprise entre 1 et 1000.")
+
+    @property
+    def _api_root(self) -> str:
+        namespace = quote(self.namespace, safe="")
+        return f"{self.base_url}/api/nginx/one/namespaces/{namespace}"
+
+    def _get_page(self, path: str, offset: int) -> dict[str, Any] | list[Any]:
+        url = f"{self._api_root}/{path.lstrip('/')}?{urlencode({'limit': self.page_size, 'offset': offset})}"
+        request = Request(
+            url,
+            headers={
+                "Authorization": f"{self.auth_scheme} {self.api_token}",
+                "Accept": "application/json",
+            },
+        )
+        try:
+            with urlopen(request, timeout=30) as response:  # nosec B310
+                return json.loads(response.read().decode("utf-8"))
+        except HTTPError as exc:
+            detail = exc.read().decode("utf-8", errors="replace")[:500]
+            raise ProviderError(
+                f"NGINX One a refusé la lecture de {path} (HTTP {exc.code}): {detail}"
+            ) from exc
+        except (URLError, TimeoutError, json.JSONDecodeError) as exc:
+            raise ProviderError(f"Lecture NGINX One impossible pour {path}: {exc}") from exc
+
+    @staticmethod
+    def _page_items(payload: dict[str, Any] | list[Any], path: str) -> list[dict[str, Any]]:
+        if isinstance(payload, list):
+            return [item for item in payload if isinstance(item, dict)]
+        for key in ("items", "results", "data"):
+            value = payload.get(key)
+            if isinstance(value, list):
+                return [item for item in value if isinstance(item, dict)]
+        raise ProviderError(f"Réponse NGINX One inattendue pour {path}: collection absente.")
+
+    def _collection(self, path: str) -> list[dict[str, Any]]:
+        items: list[dict[str, Any]] = []
+        offset = 1
+        previous_page_signature: tuple[str, ...] | None = None
+        while True:
+            payload = self._get_page(path, offset)
+            page = self._page_items(payload, path)
+            signature = tuple(
+                str(item.get("object_id") or item.get("id") or item.get("name") or "")
+                for item in page
+            )
+            if page and signature == previous_page_signature:
+                raise ProviderError(f"Pagination NGINX One répétée pour {path}; collecte incomplète.")
+            previous_page_signature = signature
+            items.extend(page)
+
+            total = payload.get("total") if isinstance(payload, dict) else None
+            if total is not None:
+                try:
+                    expected = int(total)
+                except (TypeError, ValueError) as exc:
+                    raise ProviderError(f"Pagination NGINX One invalide pour {path}.") from exc
+                if len(items) >= expected:
+                    return items
+                if not page:
+                    raise ProviderError(f"Pagination NGINX One incomplète pour {path}.")
+            elif len(page) < self.page_size:
+                return items
+            offset += len(page)
+
+    @staticmethod
+    def _object_id(item: dict[str, Any], resource_label: str) -> str:
+        value = item.get("object_id") or item.get("id")
+        if not isinstance(value, str) or not value.strip():
+            raise ProviderError(f"NGINX One a renvoyé {resource_label} sans identifiant.")
+        return value.strip()
+
+    @staticmethod
+    def _instance_name(instance: dict[str, Any], external_id: str) -> str:
+        system = instance.get("system") if isinstance(instance.get("system"), dict) else {}
+        for value in (
+            instance.get("hostname"),
+            instance.get("display_name"),
+            instance.get("name"),
+            system.get("hostname"),
+        ):
+            if isinstance(value, str) and value.strip():
+                return value.strip().rstrip(".")
+        return external_id
+
+    def list_domains(self) -> list[RemoteDomain]:
+        instances = self._collection("instances")
+        policies = self._collection("app-protect/policies")
+        resources: list[RemoteDomain] = []
+
+        for instance in instances:
+            object_id = self._object_id(instance, "une instance")
+            system = instance.get("system") if isinstance(instance.get("system"), dict) else {}
+            status = (
+                instance.get("status")
+                or instance.get("system_status")
+                or system.get("status")
+                or "managed"
+            )
+            resources.append(RemoteDomain(
+                provider=self.name,
+                external_id=f"instance:{object_id}",
+                name=self._instance_name(instance, object_id),
+                remote_status=status,
+                metadata={
+                    **instance,
+                    "inventory_kind": "nginx_one_instance",
+                    "namespace": self.namespace,
+                },
+            ))
+
+        for policy in policies:
+            object_id = self._object_id(policy, "une politique App Protect")
+            policy_name = policy.get("name")
+            if not isinstance(policy_name, str) or not policy_name.strip():
+                raise ProviderError("NGINX One a renvoyé une politique App Protect sans nom.")
+            latest = policy.get("latest") if isinstance(policy.get("latest"), dict) else {}
+            resources.append(RemoteDomain(
+                provider=self.name,
+                external_id=f"policy:{object_id}",
+                # Keep policy resources disjoint from real DNS names in the
+                # inventory's name-based unification model.
+                name=f"app-protect-policy:{policy_name.strip()}",
+                remote_status=latest.get("enforcement_mode") or policy.get("enforcement_mode") or "configured",
+                metadata={
+                    **policy,
+                    "inventory_kind": "nginx_app_protect_policy",
+                    "namespace": self.namespace,
+                },
+            ))
+        return resources

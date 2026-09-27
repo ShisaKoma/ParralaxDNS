@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% from "components/_breadcrumbs.html" import breadcrumbs %}
+{% from "components/_page_header.html" import page_header %}
+{% block page_id %}domain-list{% endblock %}
+{% block breadcrumbs %}{{ breadcrumbs([{"label": "Accueil", "href": "/"}, {"label": "Domaines", "href": none}]) }}{% endblock %}
+{% block page_header %}
+  {% call page_header("Inventaire", "Domaines", "Recherchez les domaines inventoriés et ouvrez le détail de leurs sources DNS.") %}
+    <button class="btn btn--primary" type="button" data-open-dialog="setup-dialog">Connecter un serveur</button>
+    <button class="btn btn--secondary" type="button" data-sync>Synchroniser les API</button>
+  {% endcall %}
+{% endblock %}
+{% block indicators %}<section class="metrics" aria-label="Indicateurs"><article class="metric card"><span>Domaines affichés</span><strong id="domain-count">—</strong></article></section>{% endblock %}
+{% block content %}
+<section class="card filter-card" aria-labelledby="domain-filters-title">
+  <h2 id="domain-filters-title">Filtrer l’inventaire</h2>
+  <div class="filter-grid">
+    <label class="field">Rechercher<input id="domain-search" type="search" placeholder="Domaine ou source"></label>
+    <label class="field">Trier par<select id="domain-sort"><option value="name-asc">Nom, A → Z</option><option value="name-desc">Nom, Z → A</option><option value="last-seen-desc">Dernière collecte</option><option value="sources-desc">Nombre de sources</option></select></label>
+    <label class="checkbox-field"><input type="checkbox" id="archived"><span>Afficher les archivés</span></label>
+  </div>
+</section>
+<section class="card data-card" aria-labelledby="domain-results-title">
+  <h2 class="visually-hidden" id="domain-results-title">Résultats de l’inventaire</h2>
+  <div id="content" class="table-scroll" aria-live="polite" aria-busy="true"><div class="loading-state">Chargement des domaines…</div></div>
+</section>
+{% endblock %}
+{% block scripts %}<script src="/static/js/domains.js" defer></script>{% endblock %}

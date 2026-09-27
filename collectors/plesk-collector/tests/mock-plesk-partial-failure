@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+case "${1:-} ${2:-} ${3:-} ${4:-}" in
+    "bin domain --list ")
+        printf '%s\n' 'example.org' 'example.net'
+        ;;
+    "bin dns --info example.org")
+        printf '%s\n' 'example.org. A 192.0.2.42'
+        ;;
+    "bin dns --info example.net")
+        printf '%s\n' 'unable to query DNS backend' >&2
+        exit 1
+        ;;
+    *)
+        exit 64
+        ;;
+esac

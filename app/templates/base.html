@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>{{ page_title }}</title>
+  <link rel="stylesheet" href="/static/css/tokens.css">
+  <link rel="stylesheet" href="/static/css/components.css">
+  <link rel="stylesheet" href="/static/css/app.css">
+  {% block head %}{% endblock %}
+</head>
+<body data-page="{% block page_id %}default{% endblock %}">
+  <a class="skip-link" href="#main-content">Aller au contenu principal</a>
+  {% include "components/_global_nav.html" %}
+  <main class="app-container page-stack" id="main-content" tabindex="-1" data-ui="layout">
+    {% block breadcrumbs %}{% endblock %}
+    {% block page_header %}{% endblock %}
+    {% include "components/_flash_messages.html" %}
+    {% block indicators %}{% endblock %}
+    <div class="page-content" data-ui="page-content">{% block content %}{% endblock %}</div>
+    {% block secondary_actions %}{% endblock %}
+  </main>
+  {% include "components/_tools_dialogs.html" %}
+  <script src="/static/js/app.js" defer></script>
+  {% block scripts %}{% endblock %}
+</body>
+</html>

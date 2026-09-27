@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% from "components/_breadcrumbs.html" import breadcrumbs %}
+{% from "components/_page_header.html" import page_header %}
+{% block page_id %}domain-detail{% endblock %}
+{% block breadcrumbs %}{{ breadcrumbs([{"label": "Accueil", "href": "/"}, {"label": "Domaines", "href": "/domains"}, {"label": "Domaine", "href": none, "id": "domain-breadcrumb"}]) }}{% endblock %}
+{% block page_header %}
+  {% call page_header("Détail", "Domaine", "Configuration et métadonnées actuelles reçues lors de la dernière synchronisation.") %}
+    <a class="btn btn--primary" id="comparison-link" href="/domains/{{ domain_id }}/comparison" hidden>Comparer les sources</a>
+  {% endcall %}
+{% endblock %}
+{% block indicators %}<section class="metrics" id="domain-metrics" aria-label="Indicateurs" hidden><article class="metric card"><span>Sources</span><strong id="source-count">—</strong></article><article class="metric card"><span>État</span><strong id="domain-status">—</strong></article></section>{% endblock %}
+{% block content %}
+<div id="domain-detail" data-domain-id="{{ domain_id }}" aria-live="polite" aria-busy="true"><div class="card loading-state">Chargement du domaine…</div></div>
+{% endblock %}
+{% block secondary_actions %}
+<section class="danger-zone card" id="danger-zone" aria-labelledby="danger-zone-title" hidden>
+  <div><h2 id="danger-zone-title">Zone sensible</h2><p>L’archivage conserve les données et l’historique. Une synchronisation ultérieure peut restaurer le domaine.</p></div>
+  <button class="btn btn--danger" id="archive-domain" type="button">Archiver ce domaine</button>
+  <p class="status-line" id="domain-action-status" role="status" aria-live="polite"></p>
+</section>
+{% endblock %}
+{% block scripts %}<script src="/static/js/domain-detail.js" defer></script>{% endblock %}

@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% from "components/_breadcrumbs.html" import breadcrumbs %}
+{% from "components/_page_header.html" import page_header %}
+{% block page_id %}domain-comparison{% endblock %}
+{% block breadcrumbs %}{{ breadcrumbs([{"label": "Accueil", "href": "/"}, {"label": "Domaines", "href": "/domains"}, {"label": "Domaine", "href": "/domains/" ~ domain_id, "id": "domain-breadcrumb"}, {"label": "Comparaison", "href": none}]) }}{% endblock %}
+{% block page_header %}{{ page_header("Analyse multi-sources", "Comparateur DNS", "Comparez les cibles, les valeurs et les paramètres DNS d’un même domaine entre plusieurs fournisseurs.") }}{% endblock %}
+{% block content %}
+<section class="card" id="comparison-app" data-domain-id="{{ domain_id }}" aria-labelledby="source-picker-title">
+  <h2 id="source-picker-title">Sources à comparer</h2>
+  <p id="source-help" class="muted">Chargement des sources du domaine…</p>
+  <div id="picker-actions" class="inline-actions" hidden><button class="btn btn--secondary btn--small" id="select-all" type="button">Tout sélectionner</button><button class="btn btn--secondary btn--small" id="select-none" type="button">Tout désélectionner</button></div>
+  <div id="source-picker" class="source-picker"></div>
+  <div class="form-actions"><button class="btn btn--primary" id="compare-button" type="button" disabled>Comparer les sources sélectionnées</button></div>
+  <p id="comparison-status" class="status-line" role="status" aria-live="polite"></p>
+</section>
+<section class="comparison-results" id="comparison-result" aria-label="Résultats de la comparaison"></section>
+{% endblock %}
+{% block scripts %}<script src="/static/js/comparison.js" defer></script>{% endblock %}

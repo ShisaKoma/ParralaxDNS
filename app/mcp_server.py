@@ -12,7 +12,7 @@ import os
 import secrets
 from typing import Any
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server import MCPServer
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.types import ToolAnnotations
 from starlette.responses import JSONResponse, PlainTextResponse
@@ -23,10 +23,10 @@ from .providers import ProviderError
 
 
 READ_ONLY = ToolAnnotations(
-    readOnlyHint=True,
-    destructiveHint=False,
-    idempotentHint=True,
-    openWorldHint=False,
+    read_only_hint=True,
+    destructive_hint=False,
+    idempotent_hint=True,
+    open_world_hint=False,
 )
 
 
@@ -87,9 +87,13 @@ class BearerProtectedMcpApplication:
         await self.application(scope, receive, send)
 
 
-def protected_mcp_application(server: FastMCP) -> BearerProtectedMcpApplication:
+def protected_mcp_application(server: MCPServer) -> BearerProtectedMcpApplication:
     """Build the authenticated ASGI app after creating its session manager."""
-    return BearerProtectedMcpApplication(server.streamable_http_app())
+    return BearerProtectedMcpApplication(server.streamable_http_app(
+        streamable_http_path="/mcp",
+        json_response=True,
+        transport_security=_transport_security(),
+    ))
 
 
 def _bounded(value: int, *, name: str, minimum: int, maximum: int) -> int:
@@ -214,9 +218,9 @@ def _bounded_snapshot_comparison(comparison: dict[str, Any], record_limit: int) 
 def create_mcp_server(
     database: Callable[[], Database],
     providers: Callable[[], list[Any]],
-) -> FastMCP:
+) -> MCPServer:
     """Create the connector without retaining a stale database in tests."""
-    server = FastMCP(
+    server = MCPServer(
         "parralax-dns",
         instructions=(
             "Parralax-DNS fournit un inventaire DNS en lecture seule. Utilisez "
@@ -224,9 +228,6 @@ def create_mcp_server(
             "Les outils ne déclenchent jamais de synchronisation, de clonage ou "
             "de modification chez un fournisseur DNS."
         ),
-        streamable_http_path="/mcp",
-        json_response=True,
-        transport_security=_transport_security(),
     )
 
     @server.tool(

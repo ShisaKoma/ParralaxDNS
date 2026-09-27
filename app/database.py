@@ -12,6 +12,7 @@ from alembic.config import Config
 from alembic.script import ScriptDirectory
 from sqlalchemy import (
     BigInteger,
+    Boolean,
     CheckConstraint,
     Column,
     ForeignKey,
@@ -135,6 +136,38 @@ connectivity_tests = Table(
     CheckConstraint("status IN ('running', 'success', 'failed')", name="ck_connectivity_tests_status"),
 )
 
+network_diagnostic_runs = Table(
+    "network_diagnostic_runs",
+    METADATA,
+    Column("id", primary_key, primary_key=True),
+    Column("agent", String(128), nullable=False),
+    Column("collected_at", String(32), nullable=False),
+    Column("received_at", String(32), nullable=False),
+    Column("complete", Boolean, nullable=False),
+    Column("status", String(16), nullable=False),
+    Column("check_count", Integer, nullable=False),
+    Column("anomaly_count", Integer, nullable=False),
+    CheckConstraint("status IN ('success', 'partial')", name="ck_network_diagnostic_runs_status"),
+)
+
+network_diagnostic_results = Table(
+    "network_diagnostic_results",
+    METADATA,
+    Column("id", primary_key, primary_key=True),
+    Column("run_id", primary_key, ForeignKey("network_diagnostic_runs.id"), nullable=False),
+    Column("domain", String(253)),
+    Column("check_type", String(32), nullable=False),
+    Column("status", String(16), nullable=False),
+    Column("exit_code", Integer),
+    Column("duration_ms", Integer),
+    Column("anomaly_code", String(64)),
+    Column("output", Text, nullable=False),
+    CheckConstraint(
+        "status IN ('ok', 'anomaly', 'error', 'unavailable')",
+        name="ck_network_diagnostic_results_status",
+    ),
+)
+
 history = Table(
     "history",
     METADATA,
@@ -156,6 +189,9 @@ Index("idx_sources_domain", domain_sources.c.domain_id)
 Index("idx_source_snapshots_source", source_snapshots.c.source_id, source_snapshots.c.captured_at.desc())
 Index("idx_history_domain", history.c.domain_id, history.c.occurred_at.desc())
 Index("idx_connectivity_tests_provider", connectivity_tests.c.provider, connectivity_tests.c.started_at.desc())
+Index("idx_network_diagnostic_runs_agent", network_diagnostic_runs.c.agent, network_diagnostic_runs.c.collected_at.desc())
+Index("idx_network_diagnostic_results_run", network_diagnostic_results.c.run_id)
+Index("idx_network_diagnostic_results_anomalies", network_diagnostic_results.c.status, network_diagnostic_results.c.domain)
 # PostgreSQL gets a GIN JSONB index; SQLite transparently receives a standard
 # index, which keeps the same metadata portable for local development.
 Index("idx_domain_sources_metadata_json", domain_sources.c.metadata_json, postgresql_using="gin")
@@ -441,11 +477,112 @@ class Database:
             ).mappings()
             return [self._connectivity_test_dict(row) for row in rows]
 
+    def store_network_diagnostic_report(
+        self,
+        *,
+        agent: str,
+        collected_at: str,
+        complete: bool,
+        checks: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        """Persist one immutable agent report and all of its bounded checks."""
+        anomaly_count = sum(check["status"] != "ok" for check in checks)
+        status = "success" if complete and all(check["status"] != "unavailable" for check in checks) else "partial"
+        with self.connection() as conn:
+            result = conn.execute(
+                network_diagnostic_runs.insert().values(
+                    agent=agent,
+                    collected_at=collected_at,
+                    received_at=now(),
+                    complete=complete,
+                    status=status,
+                    check_count=len(checks),
+                    anomaly_count=anomaly_count,
+                )
+            )
+            run_id = int(result.inserted_primary_key[0])
+            if checks:
+                conn.execute(
+                    network_diagnostic_results.insert(),
+                    [{"run_id": run_id, **check} for check in checks],
+                )
+        stored = self.network_diagnostic_run(run_id)
+        if stored is None:  # pragma: no cover - protects against a damaged database.
+            raise RuntimeError("Rapport de diagnostic introuvable après son enregistrement.")
+        return stored
+
+    def network_diagnostic_run(self, run_id: int) -> dict[str, Any] | None:
+        with self.connection() as conn:
+            row = conn.execute(
+                select(network_diagnostic_runs).where(network_diagnostic_runs.c.id == run_id)
+            ).mappings().first()
+            if row is None:
+                return None
+            report = dict(row)
+            report["checks"] = [
+                dict(check)
+                for check in conn.execute(
+                    select(network_diagnostic_results)
+                    .where(network_diagnostic_results.c.run_id == run_id)
+                    .order_by(network_diagnostic_results.c.id)
+                ).mappings()
+            ]
+            return report
+
+    def list_network_diagnostic_runs(self, limit: int = 50) -> list[dict[str, Any]]:
+        with self.connection() as conn:
+            return [
+                dict(row)
+                for row in conn.execute(
+                    select(network_diagnostic_runs)
+                    .order_by(network_diagnostic_runs.c.collected_at.desc(), network_diagnostic_runs.c.id.desc())
+                    .limit(limit)
+                ).mappings()
+            ]
+
+    def list_network_anomalies(self, limit: int = 200, *, current_only: bool = True) -> list[dict[str, Any]]:
+        """Return non-OK checks, optionally only from each agent's latest report."""
+        statement = (
+            select(
+                network_diagnostic_results,
+                network_diagnostic_runs.c.agent,
+                network_diagnostic_runs.c.collected_at,
+                network_diagnostic_runs.c.complete,
+            )
+            .join(network_diagnostic_runs, network_diagnostic_runs.c.id == network_diagnostic_results.c.run_id)
+            .where(network_diagnostic_results.c.status != "ok")
+        )
+        if current_only:
+            latest_runs = (
+                select(
+                    network_diagnostic_runs.c.agent,
+                    func.max(network_diagnostic_runs.c.id).label("run_id"),
+                )
+                .group_by(network_diagnostic_runs.c.agent)
+                .subquery()
+            )
+            statement = statement.join(latest_runs, latest_runs.c.run_id == network_diagnostic_results.c.run_id)
+        statement = statement.order_by(
+            network_diagnostic_runs.c.collected_at.desc(),
+            network_diagnostic_results.c.id.desc(),
+        ).limit(limit)
+        with self.connection() as conn:
+            return [dict(row) for row in conn.execute(statement).mappings()]
+
     def counts(self) -> dict[str, int]:
         with self.connection() as conn:
             return {
                 table.name: int(conn.execute(select(func.count()).select_from(table)).scalar_one())
-                for table in (domains, sync_runs, domain_sources, source_snapshots, connectivity_tests, history)
+                for table in (
+                    domains,
+                    sync_runs,
+                    domain_sources,
+                    source_snapshots,
+                    connectivity_tests,
+                    network_diagnostic_runs,
+                    network_diagnostic_results,
+                    history,
+                )
             }
 
     @staticmethod

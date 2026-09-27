@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% from "components/_breadcrumbs.html" import breadcrumbs %}
+{% from "components/_page_header.html" import page_header %}
+{% block page_id %}anomaly-list{% endblock %}
+{% block breadcrumbs %}{{ breadcrumbs([{"label": "Accueil", "href": "/"}, {"label": "Anomalies", "href": none}]) }}{% endblock %}
+{% block page_header %}{{ page_header("Surveillance distribuée", "Anomalies réseau", "Contrôles DNS et réseau remontés par les agents Debian et Alpine.") }}{% endblock %}
+{% block indicators %}
+<section class="metrics" aria-label="Indicateurs">
+  <article class="metric card"><span>Anomalies actives</span><strong id="anomaly-count">—</strong></article>
+  <article class="metric card"><span>Agents observés</span><strong id="agent-count">—</strong></article>
+  <article class="metric card"><span>Dernier rapport</span><strong id="last-report">—</strong></article>
+</section>
+{% endblock %}
+{% block content %}
+<section class="card filter-card" aria-labelledby="anomaly-filters-title">
+  <h2 id="anomaly-filters-title">Filtrer les observations</h2>
+  <label class="field field--compact" for="anomaly-filter">Agent, domaine ou type de contrôle<input id="anomaly-filter" type="search" placeholder="Rechercher une anomalie"></label>
+</section>
+<section class="card data-card" aria-labelledby="active-anomalies-title">
+  <h2 id="active-anomalies-title" class="visually-hidden">Anomalies du dernier rapport de chaque agent</h2>
+  <div id="anomaly-content" class="table-scroll" aria-live="polite" aria-busy="true"><div class="loading-state">Chargement des anomalies…</div></div>
+</section>
+<section class="card data-card" aria-labelledby="diagnostic-runs-title">
+  <h2 id="diagnostic-runs-title" class="visually-hidden">Rapports récents</h2>
+  <div id="report-content" class="table-scroll" aria-live="polite" aria-busy="true"><div class="loading-state">Chargement des rapports…</div></div>
+</section>
+{% endblock %}
+{% block scripts %}<script src="/static/js/anomalies.js" defer></script>{% endblock %}

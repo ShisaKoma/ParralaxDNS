@@ -1,0 +1,3 @@
+# Un domaine par ligne. Les lignes vides et les commentaires sont ignorés.
+example.org
+api.example.net

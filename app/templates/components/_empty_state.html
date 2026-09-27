@@ -1,0 +1,8 @@
+{% macro empty_state(title, description="", action_label="", action_attrs="") -%}
+<div class="empty-state" data-ui="empty-state">
+  <span class="empty-state__icon" aria-hidden="true">◇</span>
+  <h2>{{ title }}</h2>
+  {% if description %}<p>{{ description }}</p>{% endif %}
+  {% if action_label %}<button class="btn btn--primary" type="button" {{ action_attrs|safe }}>{{ action_label }}</button>{% endif %}
+</div>
+{%- endmacro %}

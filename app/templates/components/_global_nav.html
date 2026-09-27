@@ -1,0 +1,22 @@
+<header class="site-header">
+  <nav class="site-nav app-container" aria-label="Navigation principale">
+    <a class="site-nav__brand" href="/"{% if active_navigation == "home" %} aria-current="page"{% endif %}>
+      {% include "components/_brand_mark.html" %}
+      <span>Parralax-DNS</span>
+    </a>
+    <div class="site-nav__links">
+      <a href="/domains"{% if active_navigation == "domains" %} aria-current="page"{% endif %}>Domaines</a>
+      <a href="/history"{% if active_navigation == "history" %} aria-current="page"{% endif %}>Historique</a>
+      <a href="/anomalies"{% if active_navigation == "anomalies" %} aria-current="page"{% endif %}>Anomalies</a>
+      <details class="tools" id="tools">
+        <summary>Outils</summary>
+        <div class="tools-popover">
+          <button type="button" data-open-dialog="schedule-dialog">Planification</button>
+          <button type="button" data-open-dialog="diagnostics-dialog">Diagnostics API</button>
+          <button type="button" data-open-dialog="setup-dialog">Connecter un serveur</button>
+          {% if api_docs_enabled %}<a href="/api/docs" target="_blank" rel="noopener">Guide API</a>{% endif %}
+        </div>
+      </details>
+    </div>
+  </nav>
+</header>

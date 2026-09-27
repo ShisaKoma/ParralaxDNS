@@ -1,0 +1,10 @@
+{% macro page_header(eyebrow, title, description, title_id="page-title") -%}
+<header class="page-header" data-ui="page-header">
+  <div class="page-header__copy">
+    {% if eyebrow %}<p class="eyebrow">{{ eyebrow }}</p>{% endif %}
+    <h1 id="{{ title_id }}">{{ title }}</h1>
+    {% if description %}<p class="page-description">{{ description }}</p>{% endif %}
+  </div>
+  {% if caller %}<div class="page-header__actions">{{ caller() }}</div>{% endif %}
+</header>
+{%- endmacro %}

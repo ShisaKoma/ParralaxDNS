@@ -1,0 +1,11 @@
+{% macro breadcrumbs(items) -%}
+<nav class="breadcrumbs" aria-label="Fil d’Ariane">
+  <ol>
+    {% for item in items %}
+    <li>
+      {% if item.href %}<a href="{{ item.href }}">{{ item.label }}</a>{% else %}<span aria-current="page"{% if item.id %} id="{{ item.id }}"{% endif %}>{{ item.label }}</span>{% endif %}
+    </li>
+    {% endfor %}
+  </ol>
+</nav>
+{%- endmacro %}

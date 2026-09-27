@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% from "components/_breadcrumbs.html" import breadcrumbs %}
+{% from "components/_page_header.html" import page_header %}
+{% block page_id %}history-list{% endblock %}
+{% block breadcrumbs %}{{ breadcrumbs([{"label": "Accueil", "href": "/"}, {"label": "Historique", "href": none}]) }}{% endblock %}
+{% block page_header %}{{ page_header("Journal DNS", "Historique", "Découvertes, mises à jour, archivages, restaurations et suivi des sources.") }}{% endblock %}
+{% block indicators %}<section class="metrics" aria-label="Indicateurs"><article class="metric card"><span>Événements affichés</span><strong id="history-count">—</strong></article></section>{% endblock %}
+{% block content %}
+<section class="card filter-card" aria-labelledby="history-filters-title">
+  <h2 id="history-filters-title">Filtrer le journal</h2>
+  <label class="field field--compact" for="history-filter">Domaine, source ou événement<input id="history-filter" type="search" placeholder="Rechercher dans l’historique"></label>
+</section>
+<section class="card data-card" aria-labelledby="history-results-title">
+  <h2 class="visually-hidden" id="history-results-title">Journal des événements</h2>
+  <div id="history-content" class="table-scroll" aria-live="polite" aria-busy="true"><div class="loading-state">Chargement de l’historique…</div></div>
+</section>
+{% endblock %}
+{% block scripts %}<script src="/static/js/history.js" defer></script>{% endblock %}

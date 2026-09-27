@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+case "${1:-} ${2:-} ${3:-} ${4:-}" in
+    "bin domain --list ")
+        printf '%s\n' 'example.org' 'example.net'
+        ;;
+    "bin dns --info example.org")
+        printf '%s\n' \
+            'example.org. A 192.0.2.42' \
+            'example.org. MX 10 mail.example.org.' \
+            '_sip._tcp.example.org. SRV 10 5 5060 sip.example.org.' \
+            'www.example.org. CNAME example.org.'
+        ;;
+    "bin dns --info example.net")
+        printf '%s\n' \
+            'example.net. NS ns1.example.net.' \
+            'example.net. TXT v=spf1 -all'
+        ;;
+    *)
+        printf 'Commande Plesk simulée inconnue: %q\n' "$*" >&2
+        exit 64
+        ;;
+esac

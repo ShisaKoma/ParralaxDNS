@@ -1,0 +1,51 @@
+.page-stack { display: grid; gap: var(--space-5); padding-block: var(--space-6) var(--space-8); }
+.page-content { display: grid; gap: var(--space-5); }
+.hero-card { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(16rem, .8fr); align-items: center; gap: var(--space-6); padding: var(--space-6); overflow: hidden; }
+.hero-card h2 { margin: 0 0 var(--space-3); font-size: 1.55rem; }
+.hero-card p:not(.eyebrow), .feature-grid p { color: var(--color-muted); line-height: 1.7; }
+.feature-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr)); gap: var(--space-4); }
+.feature-grid article { padding: var(--space-5); }
+.depth-stack { position: relative; height: 13rem; }
+.depth-stack > div { position: absolute; inset: 1rem .75rem .75rem 2.5rem; border: 1px solid rgba(19, 95, 202, .18); border-radius: var(--radius-lg); background: linear-gradient(145deg, rgba(255,255,255,.9), rgba(221,236,255,.75)); }
+.depth-stack > div:nth-child(2) { inset: 2.5rem 2rem 1.9rem 1.25rem; transform: translate(1rem, -.75rem); border-color: rgba(69,184,200,.3); }
+.depth-stack > div:nth-child(3) { inset: 4rem 3.6rem 3rem .2rem; display: grid; place-items: center; transform: translate(1.9rem, -1.4rem); background: white; }
+.depth-stack .brand-mark { width: 4.5rem; height: 4.5rem; }
+.filter-card { padding: var(--space-5); }
+.filter-card h2 { margin: 0 0 var(--space-4); }
+.data-card { overflow: hidden; }
+.source { margin-bottom: var(--space-2); }
+.source:last-child { margin-bottom: 0; }
+.row-actions { white-space: nowrap; }
+.metadata-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr)); gap: var(--space-4); }
+.metadata-card { padding: var(--space-5); }
+.metadata-card h2 { margin-top: 0; }
+.metadata-card details { margin-top: var(--space-4); }
+.metadata-card summary, .record-set summary { font-weight: 650; }
+.snapshot-controls { margin-top: var(--space-5); padding-top: var(--space-4); border-top: 1px solid var(--color-border); }
+.snapshot-controls .field { margin-top: var(--space-3); }
+.snapshot-result details { padding-block: var(--space-3); border-top: 1px solid var(--color-border); }
+.danger-zone { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: var(--space-4); padding: var(--space-5); border-color: #e9b8a8; background: var(--color-danger-soft); }
+.danger-zone h2 { margin: 0; color: var(--color-danger); }
+.danger-zone p { margin-bottom: 0; }
+.danger-zone .status-line { grid-column: 1 / -1; }
+.source-picker { display: grid; grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr)); gap: var(--space-3); margin-block: var(--space-4); }
+.source-option { display: flex; align-items: flex-start; gap: var(--space-3); padding: var(--space-3); border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-surface-soft); }
+.comparison-results { display: grid; gap: var(--space-4); }
+.comparison-results > .card, #comparison-app { padding: var(--space-5); }
+.summary-card { display: grid; grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr)); gap: var(--space-3); }
+.summary-card div { padding: var(--space-4); border-radius: var(--radius-sm); background: var(--color-info-soft); }
+.summary-card strong { display: block; font-size: 1.4rem; }
+.result-tools { display: flex; align-items: end; gap: var(--space-3); }
+.record-set { padding: var(--space-4) 0; border-top: 1px solid var(--color-border); }
+.record-set .table-scroll { margin-top: var(--space-3); }
+.error-list { padding: var(--space-4) var(--space-6); border-radius: var(--radius-sm); background: var(--color-danger-soft); color: var(--color-danger); }
+.text-danger { color: var(--color-danger); }
+.anomaly-output { min-width: 16rem; }
+.anomaly-output summary { color: var(--color-brand-deep); font-weight: 650; }
+.anomaly-output pre { max-width: 34rem; margin-bottom: 0; }
+
+@media (max-width: 700px) {
+  .hero-card, .feature-grid { grid-template-columns: 1fr; }
+  .depth-stack { height: 9rem; }
+  .danger-zone { grid-template-columns: 1fr; }
+}

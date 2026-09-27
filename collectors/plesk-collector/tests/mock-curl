@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+: "${CURL_CALLED_FILE:?CURL_CALLED_FILE est requis par ce mock}"
+source_header_found=false
+while (( $# )); do
+    if [[ "$1" == '--header' && "${2:-}" == 'X-Parralax-Source-Token: test-token' ]]; then
+        source_header_found=true
+    fi
+    shift
+done
+[[ "$source_header_found" == true ]] || { printf 'En-tête du collecteur absent ou incorrect.\n' >&2; exit 1; }
+printf 'curl a été appelé\n' > "$CURL_CALLED_FILE"

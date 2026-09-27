@@ -23,13 +23,24 @@ from .database import (
     domain_sources,
     domains,
     history,
+    network_diagnostic_results,
+    network_diagnostic_runs,
     source_snapshots,
     json_value,
     sync_runs,
 )
 
 
-TABLES = (domains, sync_runs, domain_sources, source_snapshots, connectivity_tests, history)
+TABLES = (
+    domains,
+    sync_runs,
+    domain_sources,
+    source_snapshots,
+    connectivity_tests,
+    network_diagnostic_runs,
+    network_diagnostic_results,
+    history,
+)
 JSON_COLUMNS = {"metadata_json", "response_preview_json", "before_json", "after_json"}
 
 

@@ -1,14 +1,16 @@
 # Parralax-DNS
 
-Application Python pour inventorier les domaines et zones gérés dans
+Application Python locale pour inventorier les domaines et zones gérés dans
 Cloudflare, Infomaniak, OVHcloud et Technitium DNS, ainsi que les instances
-proxy vues par NGINX Instance Manager. Une synchronisation est **non destructive** : une ressource absente
+proxy vues par NGINX Instance Manager ou F5 NGINX One et les politiques F5 WAF
+for NGINX associées. Une synchronisation est **non destructive** : une ressource absente
 d'une collecte réussie est archivée localement, jamais supprimée.
 
 ## Fonctionnalités
 
 - synchronisation manuelle depuis l'interface ;
 - test de connectivité rejouable pour chaque API, avec latence et aperçu sûr de la réponse ;
+- collecte historisée de diagnostics réseau (`dig`, `traceroute`, `netstat`) depuis des agents Debian ou Alpine ;
 - domaine ou ressource unifié(e) par nom, avec une ou plusieurs sources ;
 - métadonnées brutes conservées, statut local, dates de première et dernière vue ;
 - journal append-only des créations, mises à jour, archivages et restaurations ;
@@ -21,6 +23,8 @@ d'une collecte réussie est archivée localement, jamais supprimée.
 - synchronisation des domaines OVHcloud et comparaison DNS à la demande ;
 - synchronisation des zones et des records Technitium via `technitiumdns-api` ;
 - inventaire en lecture seule des instances gérées par l’API native NGINX Instance Manager ;
+- inventaire en lecture seule des instances et résumés de politiques F5 WAF for
+  NGINX (anciennement NGINX App Protect) via l’API F5 NGINX One ;
 - export BIND (`raw`) d'une zone Cloudflare et clonage explicite vers Infomaniak.
 
 Le clonage crée une nouvelle zone Infomaniak à partir de l'export BIND de
@@ -91,18 +95,31 @@ identifiants Basic mémorisés par le navigateur.
 
 ## Démarrage local
 
-Python 3.14 ou une version ultérieure est requis.
+Python 3.14 ou une version ultérieure est requis. Vérifier l’interpréteur avant
+de créer l’environnement : un `.venv` existant conserve sa version de Python et
+n’est pas mis à niveau par une modification de `pyproject.toml`.
 
 ```bash
 cp .env.example .env
 # renseigner les identifiants de l'UI et les jetons, puis les exporter dans l'environnement de lancement
-python -m venv .venv
+python3.14 --version
+python3.14 -m venv .venv
 .venv/bin/pip install -e .
 set -a; source .env; set +a
 .venv/bin/uvicorn app.main:app --reload
 ```
 
+Pour migrer un environnement plus ancien, recréer `.venv` avec Python 3.14
+avant de réinstaller le projet. Le dépôt fournit aussi `.python-version` afin
+que les gestionnaires d’interpréteurs compatibles sélectionnent Python 3.14.7.
+
 Ouvrir ensuite http://127.0.0.1:8000.
+
+L’interface suit quatre variantes documentées — liste, configuration, détail et
+application interactive — dans [`docs/ui-patterns.md`](docs/ui-patterns.md).
+Les pages partagent le même layout, la même navigation, les mêmes composants et
+les mêmes variables CSS. Le détail d’un domaine est accessible à l’adresse
+`/domains/{id}` ; `/history` reste réservé au journal global.
 
 Pour mettre à jour une installation existante, redéployer l'API et les
 collecteurs ensemble : les en-têtes attendus sont
@@ -380,6 +397,37 @@ DNS. Utiliser un rôle NIM limité à la consultation des instances et conserver
 la vérification TLS active. Pour un certificat interne, installer sa CA de
 confiance dans l'environnement du conteneur.
 
+## Collecte F5 NGINX One et App Protect
+
+Cette source est distincte de NGINX Instance Manager. Renseigner l’URL HTTPS du
+tenant F5 dans `NGINX_ONE_URL`, son namespace dans `NGINX_ONE_NAMESPACE` et un
+jeton dans `NGINX_ONE_API_TOKEN` :
+
+```dotenv
+NGINX_ONE_URL=https://tenant.console.ves.volterra.io
+NGINX_ONE_NAMESPACE=default
+NGINX_ONE_API_TOKEN=remplacer-par-un-jeton-en-lecture-seule
+NGINX_ONE_AUTH_SCHEME=APIToken
+```
+
+Le connecteur lit toutes les pages de `GET /instances` et de
+`GET /app-protect/policies` sous
+`/api/nginx/one/namespaces/{namespace}`. Il conserve l’état des instances, ainsi
+que la version, le mode d’application et les déploiements présents dans le
+résumé des politiques. Les corps JSON des politiques et les événements de
+sécurité ne sont jamais demandés. Les politiques sont nommées localement
+`app-protect-policy:<nom>` afin de ne pas fusionner une politique avec un vrai
+nom DNS. La synchronisation échoue sans archivage si l’une des deux collections
+est refusée ou incomplète.
+
+`APIToken` est le schéma adapté aux jetons F5 Distributed Cloud. Utiliser
+`NGINX_ONE_AUTH_SCHEME=Bearer` uniquement si le tenant fournit un JWT compatible.
+Conserver la vérification TLS active et installer la CA de confiance du tenant
+dans l’environnement d’exécution si nécessaire. Les chemins, paramètres de
+pagination et méthodes d’authentification sont décrits dans la
+[référence API NGINX One](https://docs.nginx.com/nginx-one-console/api/api-reference-guide/)
+et son [guide d’authentification](https://docs.nginx.com/nginx-one-console/api/authentication/).
+
 ## Diagnostic des API
 
 Dans **Outils → Diagnostics API**, le bouton **Tester les API configurées**
@@ -394,11 +442,43 @@ Les serveurs Windows DNS fonctionnent en mode collecteur initié par le serveur 
 leur test de connectivité doit donc être lancé depuis PowerShell, qui envoie
 ensuite sa collecte à Parralax-DNS.
 
+## Agents de diagnostic réseau et anomalies
+
+Le dossier [`collectors/network-diagnostics`](collectors/network-diagnostics)
+fournit un agent Bash compatible Debian et Alpine. Il lit une liste de domaines,
+exécute localement `dig`, `traceroute` et `netstat -rn`, détecte les erreurs DNS
+élémentaires et publie le rapport sur
+`POST /api/collectors/network-diagnostics`.
+
+Chaque agent possède un identifiant et un jeton propres, configurés côté API :
+
+```dotenv
+NETWORK_DIAGNOSTIC_AGENT_TOKENS={"debian-edge-01":"un-secret-long-et-aleatoire","alpine-dmz-01":"un-autre-secret"}
+```
+
+Les rapports et leurs résultats sont append-only. Ils sont consultables via
+`GET /api/network-diagnostics`, `GET /api/network-diagnostics/{id}` et
+`GET /api/anomalies/network`. La page **Anomalies** présente comme actives les
+erreurs du dernier rapport reçu pour chaque agent ; l'historique complet reste
+accessible avec `current_only=false`. Ce flux est volontairement séparé de la
+synchronisation des zones : un rapport absent, partiel ou erroné n'archive
+jamais un domaine. L'agent n'accepte aucune commande distante et tronque chaque
+sortie à 16 Kio. Les dépendances, l'installation, le format de la liste et un
+exemple cron figurent dans le
+[guide de l'agent](collectors/network-diagnostics/README.md).
+
+Le déploiement applique la migration Alembic `0004_network_diagnostics`, qui
+ajoute deux tables sans modifier l'inventaire existant. Sauvegarder la base avant
+la migration selon la procédure PostgreSQL/SQLite habituelle. Un retour à
+`0003_source_snapshots` supprime uniquement les rapports et résultats de
+diagnostic déjà reçus ; les exporter avant ce downgrade s'ils doivent être
+conservés.
+
 ## Synchronisation automatique
 
 Parralax-DNS peut synchroniser automatiquement les connecteurs qu’il interroge
-directement : Cloudflare, Infomaniak, OVHcloud, Technitium DNS et NGINX Instance
-Manager. Définir l’intervalle dans
+directement : Cloudflare, Infomaniak, OVHcloud, Technitium DNS, NGINX Instance
+Manager et F5 NGINX One / App Protect. Définir l’intervalle dans
 `.env`, puis recréer le conteneur :
 
 ```dotenv
@@ -487,6 +567,9 @@ vers Plesk ou cPanel.
 - Technitium DNS : un jeton dédié avec `Zones: View` et `Zone: View`.
 - NGINX Instance Manager : un JWT ou compte dédié avec un rôle limité à la
   lecture des instances gérées.
+- F5 NGINX One : un compte de service ou jeton limité à la lecture du namespace,
+  des instances et des politiques App Protect ; le rôle prédéfini `Monitor` est
+  adapté à cet inventaire en lecture seule.
 
 Les appels employés sont `GET /zones` et `GET /zones/{id}/dns_records/export`
 chez Cloudflare, ainsi que `GET /2/domains/domains` et `POST /2/zones/{zone}`

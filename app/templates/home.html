@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% from "components/_page_header.html" import page_header %}
+{% block page_id %}home{% endblock %}
+{% block page_header %}
+  {% call page_header("Vue d’ensemble", "Parralax-DNS", "Pilotez les synchronisations et accédez aux outils DNS.") %}
+    <button class="btn btn--primary" type="button" data-open-dialog="setup-dialog">Connecter un serveur</button>
+    <button class="btn btn--secondary" type="button" data-sync>Synchroniser les API</button>
+  {% endcall %}
+{% endblock %}
+{% block content %}
+<section class="hero-card card">
+  <div>
+    <p class="eyebrow">Une vue, plusieurs profondeurs</p>
+    <h2>Votre infrastructure DNS mise en perspective</h2>
+    <p>Parralax-DNS rapproche les observations de chaque fournisseur pour faire ressortir les écarts sans surcharger votre vue d’ensemble.</p>
+    <a class="btn btn--secondary" href="/domains">Ouvrir l’inventaire des domaines</a>
+  </div>
+  <div class="depth-stack" aria-hidden="true"><div></div><div></div><div>{% include "components/_brand_mark.html" %}</div></div>
+</section>
+<section class="feature-grid" aria-label="Fonctions principales">
+  <article class="card"><p class="eyebrow">Inventaire</p><h2>Domaines et sources</h2><p>Retrouvez l’état courant de chaque domaine et les fournisseurs qui l’observent.</p><a href="/domains">Consulter l’inventaire</a></article>
+  <article class="card"><p class="eyebrow">Traçabilité</p><h2>Historique conservé</h2><p>Suivez les découvertes, mises à jour, archivages et restaurations.</p><a href="/history">Consulter l’historique</a></article>
+  <article class="card"><p class="eyebrow">Surveillance</p><h2>Anomalies réseau</h2><p>Consultez les contrôles remontés par les agents Debian et Alpine.</p><a href="/anomalies">Consulter les anomalies</a></article>
+</section>
+{% endblock %}

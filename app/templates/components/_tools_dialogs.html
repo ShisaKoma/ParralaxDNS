@@ -1,0 +1,57 @@
+{% from "components/_form_actions.html" import form_actions %}
+<dialog class="dialog" id="schedule-dialog" aria-labelledby="schedule-title">
+  <header class="dialog__header">
+    <div><p class="eyebrow">Outils</p><h2 id="schedule-title">Planification des synchronisations</h2></div>
+    <button class="btn btn--icon" type="button" data-close-dialog="schedule-dialog" aria-label="Fermer la planification">×</button>
+  </header>
+  <section id="schedule" class="dialog__body" aria-live="polite"><p class="muted">Chargement de la planification…</p></section>
+</dialog>
+
+<dialog class="dialog" id="diagnostics-dialog" aria-labelledby="diagnostics-title">
+  <header class="dialog__header">
+    <div><p class="eyebrow">Outils</p><h2 id="diagnostics-title">Diagnostics API</h2></div>
+    <button class="btn btn--icon" type="button" data-close-dialog="diagnostics-dialog" aria-label="Fermer les diagnostics">×</button>
+  </header>
+  <div class="dialog__body">
+    <button class="btn btn--primary" id="diagnostics" type="button">Tester les API configurées</button>
+    <p id="diagnostic-message" class="status-line" role="status" aria-live="polite"></p>
+    <section id="connectivity"></section>
+  </div>
+</dialog>
+
+<dialog class="dialog dialog--wide" id="setup-dialog" aria-labelledby="setup-title">
+  <header class="dialog__header">
+    <div><p class="eyebrow">Nouvelle source externe</p><h2 id="setup-title">Connecter un serveur</h2></div>
+    <button class="btn btn--icon" type="button" data-close-dialog="setup-dialog" aria-label="Fermer l’assistant">×</button>
+  </header>
+  <div class="dialog__body">
+    <p class="intro">Un collecteur installé sur votre serveur ou cluster lit son inventaire DNS et l’envoie à Parralax-DNS.</p>
+    <ol class="steps-overview" aria-label="Étapes de configuration">
+      <li>Créer le jeton</li><li>L’activer</li><li>Installer le collecteur</li><li>Vérifier la collecte</li>
+    </ol>
+    <form id="setup-form">
+      <div class="form-grid">
+        <label class="field">Type de serveur
+          <select id="collector-kind"><option value="plesk">shell-child</option><option value="kubernetes">Kubernetes (Ingress)</option><option value="windows">Windows DNS</option></select>
+        </label>
+        <label class="field" id="source-field">Identifiant de la source
+          <input id="collector-source" value="shell-00X" required maxlength="128" pattern="[A-Za-z0-9][A-Za-z0-9._\-]{0,127}" aria-describedby="collector-source-help">
+        </label>
+      </div>
+      <p class="field-help" id="collector-source-help">Choisissez un identifiant unique par serveur, sans espaces.</p>
+      <label class="field">URL de Parralax-DNS
+        <input id="collector-url" type="url" placeholder="https://dns.votre-entreprise.fr" required aria-describedby="url-help">
+      </label>
+      <p class="field-help" id="url-help">Adresse HTTP ou HTTPS accessible depuis le serveur à connecter.</p>
+      <section class="step-card"><h3>1. Créer un jeton de collecte</h3><p>Ce jeton autorise l’envoi vers Parralax-DNS. Aucune clé API tierce n’est nécessaire.</p>{{ form_actions("Générer le jeton et les instructions", "generate-token") }}<p class="status-line" id="setup-status" role="status" aria-live="polite"></p></section>
+    </form>
+
+    <div id="setup-instructions" hidden>
+      <p class="flash flash--info">Jeton généré dans votre navigateur, sans enregistrement automatique. Conservez-le dans un emplacement sûr avant de fermer cette fenêtre.</p>
+      <section class="step-card"><h3>2. Activer le jeton dans Parralax-DNS</h3><p id="server-help"></p><pre class="code-box" id="server-config"></pre><button class="btn btn--secondary" type="button" data-copy="server-config">Copier la configuration</button></section>
+      <section class="step-card"><h3>3. Installer le collecteur</h3><a class="btn btn--secondary" id="collector-download">Télécharger le collecteur</a><p id="collector-help"></p><pre class="code-box" id="collector-config"></pre><button class="btn btn--secondary" type="button" data-copy="collector-config">Copier la configuration</button><div id="windows-token" hidden><p>Enregistrez ce jeton dans le fichier protégé indiqué par la documentation.</p><pre class="code-box" id="token-value"></pre><button class="btn btn--secondary" type="button" data-copy="token-value">Copier le jeton</button></div><p id="run-help"></p><pre class="code-box" id="collector-command"></pre><button class="btn btn--secondary" type="button" data-copy="collector-command">Copier la commande</button></section>
+      <section class="step-card"><h3>4. Vérifier la première collecte</h3><p id="verify-help"></p><p>Une réponse <code>status: success</code> confirme la réception.</p><button class="btn btn--secondary" type="button" id="refresh-domains">Actualiser les domaines</button></section>
+    </div>
+    <p id="copy-status" class="status-line" role="status" aria-live="polite"></p>
+  </div>
+</dialog>

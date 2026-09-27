@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+case "${1:-} ${2:-} ${3:-} ${4:-}" in
+    "bin domain --list ")
+        printf '%s\n' 'example.org' 'empty.example'
+        ;;
+    "bin dns --info example.org")
+        printf '%s\n' 'example.org. A 192.0.2.42'
+        ;;
+    "bin dns --info empty.example")
+        printf '%s\n' \
+            'The DNS zone for this domain is switched off.' \
+            '' \
+            'exit status 1' >&2
+        ;;
+    *)
+        exit 64
+        ;;
+esac

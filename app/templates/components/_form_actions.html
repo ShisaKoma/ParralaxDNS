@@ -1,0 +1,6 @@
+{% macro form_actions(primary_label, primary_id, secondary_label="", secondary_id="") -%}
+<div class="form-actions" data-ui="form-actions">
+  {% if secondary_label %}<button class="btn btn--secondary" type="button" id="{{ secondary_id }}">{{ secondary_label }}</button>{% endif %}
+  <button class="btn btn--primary" type="submit" id="{{ primary_id }}">{{ primary_label }}</button>
+</div>
+{%- endmacro %}
